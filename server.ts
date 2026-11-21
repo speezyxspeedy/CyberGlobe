@@ -2,13 +2,18 @@ import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {WebSocketServer, WebSocket} from 'ws';
-import {GoogleGenAI, Type} from '@google/genai';
-import {buildDemoDataset, computeGlobalStatistics, DEMO_IP_PROFILES} from './src/lib/demoScenario.ts';
-import {parseLogs, maskPrivateIp, sha256Hex} from './src/lib/logParser.ts';
-import {calculateRiskScore} from './src/lib/riskEngine.ts';
-import {generateCaseMarkdownReport} from './src/lib/caseLogic.ts';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer, WebSocket } from 'ws';
+import { GoogleGenAI, Type } from '@google/genai';
+import { buildDemoDataset, computeGlobalStatistics, DEMO_IP_PROFILES } from './src/lib/demoScenario.ts';
+import { parseLogs, maskPrivateIp, sha256Hex } from './src/lib/logParser.ts';
+import { calculateRiskScore } from './src/lib/riskEngine.ts';
+import { generateCaseMarkdownReport } from './src/lib/caseLogic.ts';
+import {
+  buildDemoGitHubOrganization,
+  calculateRepositoryRiskScore,
+  calculateBlastRadius,
+} from './src/lib/githubSecEngine.ts';
 import {
   APPROX_LOCATION_DISCLAIMER,
   type AuditLogEntry,
@@ -43,7 +48,7 @@ function isSafeRole(role: unknown): UserRole {
 function requireWriteRole(req: express.Request, res: express.Response): UserRole | null {
   const role = isSafeRole(req.header('x-user-role'));
   if (role === 'Viewer') {
-    res.status(403).json({error: 'Viewer role is read-only. Switch to Analyst or Admin to perform mutations.'});
+    res.status(403).json({ error: 'Viewer role is read-only. Switch to Analyst or Admin to perform mutations.' });
     return null;
   }
   return role;
@@ -124,10 +129,10 @@ function enrichOrSynthesizeIp(ip: string): IpIntelligence {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({limit: '4mb'}));
+  app.use(express.json({ limit: '4mb' }));
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({noServer: true});
+  const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`).pathname;
@@ -319,23 +324,23 @@ async function startServer() {
   app.get('/api/layers', (_req, res) => {
     res.json({
       layers: [
-        {id: 'attackSources', name: 'Attack Sources', defaultEnabled: true},
-        {id: 'targetAssets', name: 'Target Assets', defaultEnabled: true},
-        {id: 'attackArcs', name: 'Attack Arcs', defaultEnabled: true},
-        {id: 'portScans', name: 'Port Scan Detection', defaultEnabled: true},
-        {id: 'bruteForce', name: 'Brute-Force Detection', defaultEnabled: true},
-        {id: 'malwareC2', name: 'Malware C2 Traffic', defaultEnabled: true},
-        {id: 'dataExfiltration', name: 'Data Exfiltration', defaultEnabled: true},
-        {id: 'vpnProxyTor', name: 'VPN / Proxy / Tor Exposure', defaultEnabled: true},
-        {id: 'threatReputation', name: 'Threat Reputation', defaultEnabled: false},
-        {id: 'globalHeatmap', name: 'Global Threat Heatmap', defaultEnabled: true},
-        {id: 'geoRiskMatrix', name: 'Geographic Risk Matrix', defaultEnabled: false},
+        { id: 'attackSources', name: 'Attack Sources', defaultEnabled: true },
+        { id: 'targetAssets', name: 'Target Assets', defaultEnabled: true },
+        { id: 'attackArcs', name: 'Attack Arcs', defaultEnabled: true },
+        { id: 'portScans', name: 'Port Scan Detection', defaultEnabled: true },
+        { id: 'bruteForce', name: 'Brute-Force Detection', defaultEnabled: true },
+        { id: 'malwareC2', name: 'Malware C2 Traffic', defaultEnabled: true },
+        { id: 'dataExfiltration', name: 'Data Exfiltration', defaultEnabled: true },
+        { id: 'vpnProxyTor', name: 'VPN / Proxy / Tor Exposure', defaultEnabled: true },
+        { id: 'threatReputation', name: 'Threat Reputation', defaultEnabled: false },
+        { id: 'globalHeatmap', name: 'Global Threat Heatmap', defaultEnabled: true },
+        { id: 'geoRiskMatrix', name: 'Geographic Risk Matrix', defaultEnabled: false },
       ],
     });
   });
 
   app.get('/api/events', (req, res) => {
-    const {severity, eventType, country, asn, protocol, minConfidence, q} = req.query;
+    const { severity, eventType, country, asn, protocol, minConfidence, q } = req.query;
     let list = [...store.events];
     if (typeof severity === 'string' && severity) {
       const allowed = severity.split(',');
@@ -373,12 +378,12 @@ async function startServer() {
           e.targetAssetName.toLowerCase().includes(needle)
       );
     }
-    res.json({events: list, total: list.length, isDemoData: list.some((e) => e.isDemoData)});
+    res.json({ events: list, total: list.length, isDemoData: list.some((e) => e.isDemoData) });
   });
 
   app.get('/api/events/:id', (req, res) => {
     const ev = store.events.find((e) => e.id === req.params.id);
-    if (!ev) return res.status(404).json({error: 'Threat event not found'});
+    if (!ev) return res.status(404).json({ error: 'Threat event not found' });
     return res.json(ev);
   });
 
@@ -386,7 +391,7 @@ async function startServer() {
     const role = requireWriteRole(req, res);
     if (!role) return;
     const ev = store.events.find((e) => e.id === req.params.id);
-    if (!ev) return res.status(404).json({error: 'Threat event not found'});
+    if (!ev) return res.status(404).json({ error: 'Threat event not found' });
     const validStatuses = ['new', 'reviewed', 'suspicious', 'confirmed', 'false_positive', 'escalated'];
     if (req.body.status && validStatuses.includes(req.body.status)) {
       ev.status = req.body.status;
@@ -412,7 +417,7 @@ async function startServer() {
   app.get('/api/ip/:ip/intelligence', async (req, res) => {
     const ip = req.params.ip.trim();
     if (!isValidIpv4(ip)) {
-      return res.status(400).json({error: 'Invalid IPv4 address format'});
+      return res.status(400).json({ error: 'Invalid IPv4 address format' });
     }
     const intel = enrichOrSynthesizeIp(ip);
 
@@ -423,7 +428,7 @@ async function startServer() {
         const resp = await fetch(
           `https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`,
           {
-            headers: {Key: abuseKey, Accept: 'application/json'},
+            headers: { Key: abuseKey, Accept: 'application/json' },
             signal: AbortSignal.timeout(4000),
           }
         );
@@ -461,7 +466,7 @@ async function startServer() {
     const role = requireWriteRole(req, res);
     if (!role) return;
     const ip = req.params.ip.trim();
-    if (!isValidIpv4(ip)) return res.status(400).json({error: 'Invalid IPv4 address'});
+    if (!isValidIpv4(ip)) return res.status(400).json({ error: 'Invalid IPv4 address' });
     const intel = enrichOrSynthesizeIp(ip);
     intel.blocked = Boolean(req.body.blocked ?? true);
     intel.enrichedAt = new Date().toISOString();
@@ -483,7 +488,7 @@ async function startServer() {
     const matchingIps = Object.values(store.ipIntel).filter((i) => i.asn.toUpperCase() === asnParam);
     const matchingEvents = store.events.filter((e) => e.asn.toUpperCase() === asnParam);
     if (matchingIps.length === 0 && matchingEvents.length === 0) {
-      return res.status(404).json({error: `No intelligence records found for ${asnParam}`});
+      return res.status(404).json({ error: `No intelligence records found for ${asnParam}` });
     }
     const avgRisk = Math.round(
       matchingEvents.reduce((acc, e) => acc + e.riskScore, 0) / Math.max(1, matchingEvents.length)
@@ -503,21 +508,21 @@ async function startServer() {
   });
 
   app.get('/api/assets', (_req, res) => {
-    res.json({assets: store.assets, total: store.assets.length});
+    res.json({ assets: store.assets, total: store.assets.length });
   });
 
   app.post('/api/assets', (req, res) => {
     const role = requireWriteRole(req, res);
     if (!role) return;
-    const {name, ipOrInternalId, locationLabel, country, countryCode, latitude, longitude, assetType, criticality, openPorts} =
+    const { name, ipOrInternalId, locationLabel, country, countryCode, latitude, longitude, assetType, criticality, openPorts } =
       req.body;
     if (!name || !ipOrInternalId || !locationLabel) {
-      return res.status(400).json({error: 'Asset name, IP/Internal ID, and location label are required.'});
+      return res.status(400).json({ error: 'Asset name, IP/Internal ID, and location label are required.' });
     }
     const lat = Number(latitude);
     const lon = Number(longitude);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-      return res.status(400).json({error: 'Valid latitude (-90..90) and longitude (-180..180) are required.'});
+      return res.status(400).json({ error: 'Valid latitude (-90..90) and longitude (-180..180) are required.' });
     }
     const newAsset: ProtectedAsset = {
       id: `asset-${Date.now()}`,
@@ -541,26 +546,26 @@ async function startServer() {
     store.assets.push(newAsset);
     const actor = String(req.header('x-user-name') || 'SOC Analyst');
     recordAudit(actor, role, 'ASSET_CREATED', 'asset', newAsset.id, `Registered protected asset ${newAsset.name}`);
-    broadcast('layer_refresh', {layer: 'targetAssets', asset: newAsset});
+    broadcast('layer_refresh', { layer: 'targetAssets', asset: newAsset });
     return res.status(201).json(newAsset);
   });
 
   app.get('/api/cases', (_req, res) => {
-    res.json({cases: store.cases, total: store.cases.length});
+    res.json({ cases: store.cases, total: store.cases.length });
   });
 
   app.get('/api/cases/:id', (req, res) => {
     const found = store.cases.find((c) => c.id === req.params.id);
-    if (!found) return res.status(404).json({error: 'Case not found'});
+    if (!found) return res.status(404).json({ error: 'Case not found' });
     return res.json(found);
   });
 
   app.post('/api/cases', (req, res) => {
     const role = requireWriteRole(req, res);
     if (!role) return;
-    const {title, description, priority, status, assignedAnalyst, tags, linkedEventIds, linkedIps} = req.body;
+    const { title, description, priority, status, assignedAnalyst, tags, linkedEventIds, linkedIps } = req.body;
     if (!title || !description) {
-      return res.status(400).json({error: 'Case title and description are required.'});
+      return res.status(400).json({ error: 'Case title and description are required.' });
     }
     const nowIso = new Date().toISOString();
     const caseNum = String(store.cases.length + 16).padStart(3, '0');
@@ -595,9 +600,9 @@ async function startServer() {
     const role = requireWriteRole(req, res);
     if (!role) return;
     const found = store.cases.find((c) => c.id === req.params.id);
-    if (!found) return res.status(404).json({error: 'Case not found'});
+    if (!found) return res.status(404).json({ error: 'Case not found' });
     if (found.status === 'closed' && role !== 'Admin') {
-      return res.status(403).json({error: 'Closed cases are terminal and require Admin role to reopen or modify.'});
+      return res.status(403).json({ error: 'Closed cases are terminal and require Admin role to reopen or modify.' });
     }
     if (req.body.status) found.status = req.body.status;
     if (req.body.priority) found.priority = req.body.priority;
@@ -614,9 +619,9 @@ async function startServer() {
     const role = requireWriteRole(req, res);
     if (!role) return;
     const found = store.cases.find((c) => c.id === req.params.id);
-    if (!found) return res.status(404).json({error: 'Case not found'});
+    if (!found) return res.status(404).json({ error: 'Case not found' });
     const content = String(req.body.content || '').trim();
-    if (!content) return res.status(400).json({error: 'Note content is required.'});
+    if (!content) return res.status(400).json({ error: 'Note content is required.' });
     const authorName = String(req.body.authorName || req.header('x-user-name') || 'SOC Analyst').trim();
     const note: CaseNote = {
       id: `note-${Date.now()}`,
@@ -637,10 +642,10 @@ async function startServer() {
     const role = requireWriteRole(req, res);
     if (!role) return;
     const found = store.cases.find((c) => c.id === req.params.id);
-    if (!found) return res.status(404).json({error: 'Case not found'});
-    const {fileName, fileType, content, sourceSystem} = req.body;
+    if (!found) return res.status(404).json({ error: 'Case not found' });
+    const { fileName, fileType, content, sourceSystem } = req.body;
     if (!fileName || typeof content !== 'string') {
-      return res.status(400).json({error: 'Evidence fileName and text/metadata content are required.'});
+      return res.status(400).json({ error: 'Evidence fileName and text/metadata content are required.' });
     }
     const collectedBy = String(req.body.collectedBy || req.header('x-user-name') || 'SOC Analyst').trim();
     const nowIso = new Date().toISOString();
@@ -656,7 +661,7 @@ async function startServer() {
       collectedAt: nowIso,
       sourceSystem: String(sourceSystem || 'Analyst Evidence Upload').slice(0, 120),
       integrityStatus: 'verified',
-      accessHistory: [{accessedBy: collectedBy, accessedAt: nowIso, action: 'UPLOADED_AND_SHA256_HASHED'}],
+      accessHistory: [{ accessedBy: collectedBy, accessedAt: nowIso, action: 'UPLOADED_AND_SHA256_HASHED' }],
       previewSnippet: content.slice(0, 260),
       isDemoData: false,
     };
@@ -673,13 +678,13 @@ async function startServer() {
     if (!role) return;
     const rawLogs = String(req.body.rawLogs || req.body.content || '').trim();
     if (!rawLogs) {
-      return res.status(400).json({error: 'Log payload (rawLogs) is required.'});
+      return res.status(400).json({ error: 'Log payload (rawLogs) is required.' });
     }
     const format = req.body.format || 'auto';
     const source = String(req.body.source || 'log_ingest_api');
     const parsed = parseLogs(rawLogs, format, source);
     if (parsed.length === 0) {
-      return res.status(400).json({error: 'No valid network events with IPv4 addresses could be extracted from the supplied logs.'});
+      return res.status(400).json({ error: 'No valid network events with IPv4 addresses could be extracted from the supplied logs.' });
     }
 
     const createdEvents: ThreatEvent[] = [];
@@ -775,7 +780,7 @@ async function startServer() {
 
   app.get('/api/reports/:case_id', (req, res) => {
     const found = store.cases.find((c) => c.id === req.params.case_id);
-    if (!found) return res.status(404).json({error: 'Case not found'});
+    if (!found) return res.status(404).json({ error: 'Case not found' });
     const linkedEvents = store.events.filter(
       (e) => found.linkedEventIds.includes(e.id) || e.caseId === found.id
     );
@@ -799,45 +804,91 @@ async function startServer() {
     const region = stats.geoRiskMatrix.find(
       (r) => r.regionId === regionId || r.countryCode.toLowerCase() === regionId || r.country.toLowerCase() === regionId
     );
-    if (!region) return res.status(404).json({error: `Region ${regionId} not found`});
+    if (!region) return res.status(404).json({ error: `Region ${regionId} not found` });
     const regionEvents = store.events.filter((e) => e.sourceLocation.countryCode.toLowerCase() === region.countryCode.toLowerCase());
-    return res.json({region, events: regionEvents});
+    return res.json({ region, events: regionEvents });
   });
 
   app.get('/api/audit-logs', (_req, res) => {
-    res.json({logs: store.auditLogs});
+    res.json({ logs: store.auditLogs });
   });
 
-  // Server-side Gemini Forensic Analyst endpoint
-  app.post('/api/analysis/query', async (req, res) => {
-    const question = String(req.body.question || '').trim();
-    if (!question) {
-      return res.status(400).json({error: 'Please enter a forensic investigation question.'});
+  // Server-side Gemini Forensic Analyst & DFIR Chatbot endpoints
+  const CANDIDATE_GEMINI_MODELS = [
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3.8-flash',
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-4-hydrogen',
+  ];
+
+  async function callGeminiWithFallback(apiKey: string, contents: any, systemInstruction: string, responseSchema?: any) {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    let lastError: any = null;
+    for (const model of CANDIDATE_GEMINI_MODELS) {
+      try {
+        const config: any = { systemInstruction };
+        if (responseSchema) {
+          config.responseMimeType = 'application/json';
+          config.responseSchema = responseSchema;
+        }
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config,
+        });
+        const text = response.text ?? '';
+        if (text) {
+          return { text, model };
+        }
+      } catch (err: any) {
+        lastError = err;
+        // Continue to next candidate model if current model has quota/demand issue
+      }
     }
+    throw lastError || new Error('All candidate Gemini models failed to respond.');
+  }
+
+  // Conversational Multi-Turn DFIR Chatbot
+  app.post('/api/analysis/chat', async (req, res) => {
+    const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
+    const userPrompt = String(req.body.message || req.body.question || messages[messages.length - 1]?.content || '').trim();
+
+    if (!userPrompt && messages.length === 0) {
+      return res.status(400).json({ error: 'Please provide a message or inquiry for the Forensic Analyst.' });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
       return res.status(503).json({
-        error: 'Gemini API key is not configured on the server. Add GEMINI_API_KEY in Settings > Secrets to run AI forensic analysis.',
+        error: 'Gemini API key is not configured on the server. Please ensure GEMINI_API_KEY is set in .env.',
       });
     }
 
     const selectedEventId = req.body.selectedEventId ? String(req.body.selectedEventId) : null;
     const selectedCaseId = req.body.selectedCaseId ? String(req.body.selectedCaseId) : null;
     const selectedIp = req.body.selectedIp ? String(req.body.selectedIp) : null;
-    const activeFilters = req.body.filters ?? {};
 
     const contextPayload = {
       forensicRules: [
-        'NEVER invent facts, IPs, hashes, or log entries not present in the supplied telemetry.',
+        'NEVER invent facts, IPs, hashes, or log entries not present in the supplied telemetry context.',
         'Clearly separate verified evidence, correlation-based inference, and DEMO DATA.',
-        'NEVER present IP geolocation as proof of a person physical location or identity; always cite accuracy radius km and anonymization caveats.',
-        'If evidence is insufficient, explicitly list missing logs/artifacts under evidenceGaps.',
+        'NEVER present IP geolocation as proof of a person physical location or identity; cite accuracy radius km and anonymization caveats.',
+        'Format responses clearly with markdown, bullet points, and actionable forensic recommendations.',
       ],
-      activeFilters,
       selectedEvent: selectedEventId ? store.events.find((e) => e.id === selectedEventId) ?? null : null,
       selectedCase: selectedCaseId ? store.cases.find((c) => c.id === selectedCaseId) ?? null : null,
       selectedIpIntel: selectedIp ? store.ipIntel[selectedIp] ?? null : null,
-      recentEvents: store.events.slice(0, 18).map((e) => ({
+      recentEvents: store.events.slice(0, 16).map((e) => ({
         id: e.id,
         eventType: e.eventType,
         severity: e.severity,
@@ -877,134 +928,117 @@ async function startServer() {
       })),
     };
 
+    const systemInstruction = `You are the Principal Digital Forensics and Incident Response (DFIR) AI Analyst in CyberTrace Globe.
+You converse with security analysts and investigators.
+Ground your responses strictly in the supplied operational telemetry context.
+Always distinguish verified facts from correlation inferences and simulated DEMO DATA.
+Include relevant IoCs (IPs, hashes, domains, ports) and concrete containment steps.
+Always include the notice: "Approximate network location · Investigative lead only — not proof of a person's physical location or identity."`;
+
+    const chatContextPrompt = `Live Forensic Telemetry Snapshot (JSON):\n${JSON.stringify(contextPayload)}\n\n` +
+      (messages.length > 0
+        ? `Conversation History:\n${messages.slice(-6).map((m: any) => `${m.role === 'user' ? 'Analyst' : 'Gemini DFIR'}: ${m.content}`).join('\n\n')}\n\n`
+        : '') +
+      `Current Analyst Inquiry: ${userPrompt}`;
+
     try {
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `Investigator Question: ${question}\n\nForensic Telemetry Context (JSON):\n${JSON.stringify(contextPayload)}`,
-        config: {
-          systemInstruction:
-            'You are a Principal Digital Forensics & Incident Response (DFIR) Analyst inside CyberTrace Globe. Analyze ONLY the supplied telemetry context. Never fabricate IPs, timestamps, usernames, or conclusions. Explicitly distinguish verified telemetry, correlation-based inference, and simulated DEMO DATA. Always remind analysts that IP geolocation is an approximate network lead with an uncertainty radius and never proves an individual physical location.',
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              summary: {type: Type.STRING, description: 'Concise executive incident summary grounded strictly in supplied data.'},
-              likelyAttackChain: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Ordered kill-chain steps inferred from correlated events.',
-              },
-              indicatorsOfCompromise: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    type: {type: Type.STRING},
-                    value: {type: Type.STRING},
-                    context: {type: Type.STRING},
-                    isDemoData: {type: Type.BOOLEAN},
-                  },
-                },
-              },
-              riskAssessment: {type: Type.STRING, description: 'Overall risk posture and impact assessment.'},
-              evidenceGaps: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Specific missing logs, PCAPs, EDR captures, or auth records needed.',
-              },
-              recommendedActions: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Concrete prioritized containment and forensic response actions.',
-              },
-              confidenceLevel: {type: Type.STRING, description: 'low, medium, or high'},
-              verifiedEvidence: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Facts directly verified from log/telemetry fields.',
-              },
-              correlationInferences: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Analytic inferences derived by correlating multiple events.',
-              },
-              demoDataNotice: {
-                type: Type.STRING,
-                description: 'Explicit notice if simulated DEMO DATA was included in the analyzed records.',
-              },
-              sourcesUsed: {
-                type: Type.ARRAY,
-                items: {type: Type.STRING},
-                description: 'Event IDs, case IDs, and asset IDs referenced.',
-              },
-            },
-            required: [
-              'summary',
-              'likelyAttackChain',
-              'indicatorsOfCompromise',
-              'riskAssessment',
-              'evidenceGaps',
-              'recommendedActions',
-              'confidenceLevel',
-              'verifiedEvidence',
-              'correlationInferences',
-              'demoDataNotice',
-              'sourcesUsed',
-            ],
-          },
-        },
-      });
-
-      const rawText = (response.text ?? '{}').trim();
-      const parsed = JSON.parse(rawText);
-      const normalizedConfidence =
-        parsed.confidenceLevel === 'high' || parsed.confidenceLevel === 'low' ? parsed.confidenceLevel : 'medium';
-
+      const result = await callGeminiWithFallback(apiKey, chatContextPrompt, systemInstruction);
       return res.json({
-        ...parsed,
-        confidenceLevel: normalizedConfidence,
-        generatedAt: new Date().toISOString(),
+        reply: result.text.trim(),
+        modelUsed: result.model,
+        timestamp: new Date().toISOString(),
+        disclaimer: APPROX_LOCATION_DISCLAIMER,
       });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Gemini analysis request failed';
-      console.error('Gemini Forensic Analyst error:', msg);
+    } catch (err: any) {
+      console.error('Gemini chat error:', err?.message || err);
       return res.status(502).json({
-        error: `Forensic AI analysis failed: ${msg}`,
+        error: `Forensic AI chat error: ${err?.message || 'Unable to complete request'}`,
       });
     }
   });
 
-  // ==================== STATIC / VITE SERVING ====================
-  if (!IS_PROD) {
-    const {createServer: createViteServer} = await import('vite');
-    const vite = await createViteServer({
-      server: {middlewareMode: true},
-      appType: 'spa',
+  // Structured Forensic Analyst query endpoint
+  app.post('/api/analysis/query', async (req, res) => {
+    const question = String(req.body.question || '').trim();
+    if (!question) {
+      return res.status(400).json({ error: 'Please enter a forensic investigation question.' });
+    }
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+       );
     });
-    app.use(vite.middlewares);
-  } else {
-    const distDir = path.resolve(__dirname, 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
-    });
-  }
+}    }
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`CyberTrace Globe full-stack server running on http://0.0.0.0:${PORT}`);
+
+const selectedEventId = req.body.selectedEventId ? String(req.body.selectedEventId) : null;
+const selectedCaseId = req.body.selectedCaseId ? String(req.body.selectedCaseId) : null;
+const selectedIp = req.body.selectedIp ? String(req.body.selectedIp) : null;
+const activeFilters = req.body.filters ?? {};
+
+const contextPayload = {
+  forensicRules: [
+    'NEVER invent facts, IPs, hashes, or log entries not present in the supplied telemetry.',
+    'Clearly separate verified evidence, correlation-based inference, and DEMO DATA.',
+    'NEVER present IP geolocation as proof of a person physical location or identity; always cite accuracy radius km and anonymization caveats.',
+    'If evidence is insufficient, explicitly list missing logs/artifacts under evidenceGaps.',
+  ],
+  activeFilters,
+  selectedEvent: selectedEventId ? store.events.find((e) => e.id === selectedEventId) ?? null : null,
+  selectedCase: selectedCaseId ? store.cases.find((c) => c.id === selectedCaseId) ?? null : null,
+  selectedIpIntel: selectedIp ? store.ipIntel[selectedIp] ?? null : null,
+  recentEvents: store.events.slice(0, 18).map((e) => ({
+    id: e.id,
+    eventType: e.eventType,
+    severity: e.severity,
+    riskScore: e.riskScore,
+    sourceIp: e.sourceIp,
+    approxLocation: `${e.sourceLocation.city}, ${e.sourceLocation.country} (±${e.sourceLocation.accuracyRadiusKm} km)`,
+    asn: e.asn,
+    isp: e.isp,
+    connectionType: e.connectionType,
+    vpnProbability: e.vpnProbability,
+    targetAsset: e.targetAssetName,
+    maskedDestinationIp: e.maskedDestinationIp,
+    timestamp: e.timestamp,
+    status: e.status,
+    caseId: e.caseId,
+    isDemoData: e.isDemoData,
+    metadata: e.metadata,
+  })),
+  assets: store.assets.map((a) => ({
+    id: a.id,
+    name: a.name,
+    location: a.locationLabel,
+    type: a.assetType,
+    criticality: a.criticality,
+    riskScore: a.riskScore,
+  })),
+  cases: store.cases.map((c) => ({
+    id: c.id,
+    title: c.title,
+    priority: c.priority,
+    status: c.status,
+    linkedIps: c.linkedIps,
+    linkedEventIds: c.linkedEventIds,
+    evidenceCount: c.evidence.length,
+    notesCount: c.notes.length,
+    isDemoData: c.isDemoData,
+  })),
+};
+
+tpY, items: {,
+  properties: {
+    type: { type: Type.STRING },
+    value: { type: Type.STRING },
+    context: { type: Type.STRING },
+    recommendedActions: {
+      type: Type.ARRAY,
+        items: { type: Type.STRING },
+      description: 'Concrete prioritized containment and forensic response actions.',
+        },
+    const msg = ertatic(distDir));
+    log(`CyberTrace Globe full-stack server running on http://0.0.0.0:${PORT}`);
   });
 }
-
-startServer().catch((err) => {
-  console.error('Failed to start CyberTrace Globe server:', err);
-  process.exit(1);
-});
+ri
