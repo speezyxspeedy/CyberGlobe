@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@import "./styles/tokens.css";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #050811;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+
+  .font-mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom slim dark scrollbars for SOC sidebars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.7);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.65);
+}
+
+/* Keep CesiumJS viewer flush and cleanly integrated */
+.cesium-viewer,
+.cesium-viewer-cesiumWidgetContainer,
+.cesium-widget,
+.cesium-widget canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cesium-viewer-bottom {
+  bottom: 4px !important;
+  right: 8px !important;
+  left: auto !important;
+  opacity: 0.45;
+  pointer-events: none;
+  font-size: 9px !important;
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    overflow: visible !important;
+    height: auto !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+}

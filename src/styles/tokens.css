@@ -1,0 +1,96 @@
+/* CyberTrace Globe — Design Token System
+ * "Quiet Command Room" art direction
+ * All components MUST consume these tokens — no hardcoded colours or magic spacing.
+ */
+
+:root {
+  /* ── Backgrounds ─────────────────────────────────────────── */
+  --bg-base:          #070B10;   /* page root / cesium background */
+  --bg-surface:       #0D141C;   /* panels, sidebars */
+  --bg-raised:        #16202B;   /* cards, dropdown options */
+  --bg-overlay:       rgba(7, 11, 16, 0.95); /* floating panels with backdrop-blur */
+  --border-hairline:  rgba(255, 255, 255, 0.06);
+  --border-subtle:    rgba(255, 255, 255, 0.10);
+  --border-active:    rgba(77, 184, 255, 0.60);
+
+  /* ── Signal palette — max 5 semantic hues ───────────────── */
+  --color-critical:   #FF4D5E;
+  --color-high:       #FF9F43;
+  --color-medium:     #F5D547;
+  --color-low:        #4DB8FF;
+  --color-safe:       #3DDC97;
+
+  /* ── Neutral data ink ───────────────────────────────────── */
+  --color-text-primary:   #E6EDF5;
+  --color-text-secondary: #9FB0C3;
+  --color-text-muted:     #5A6A7A;
+  --color-text-disabled:  #374151;
+
+  /* ── Accent (cyan brand) ────────────────────────────────── */
+  --color-accent:         #4DB8FF;
+  --color-accent-dim:     rgba(77, 184, 255, 0.15);
+  --color-accent-border:  rgba(77, 184, 255, 0.50);
+
+  /* ── Layer colour chips (one per layer) ─────────────────── */
+  --layer-attack-sources:    #FF4D5E;
+  --layer-target-assets:     #4DB8FF;
+  --layer-attack-arcs:       #FF9F43;
+  --layer-port-scans:        #F5D547;
+  --layer-brute-force:       #FF4D5E;
+  --layer-malware-c2:        #c084fc;
+  --layer-data-exfil:        #FF9F43;
+  --layer-vpn-proxy-tor:     #a78bfa;
+  --layer-threat-reputation: #fb923c;
+  --layer-global-heatmap:    #3DDC97;
+  --layer-geo-risk-matrix:   #3DDC97;
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-ui:   "Geist", "Inter Tight", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --text-micro:   10.5px;  /* uppercase micro-labels, letter-spacing 0.08em */
+  --text-xs:      11px;
+  --text-sm:      12px;
+  --text-base:    14px;
+
+  /* ── Spacing scale (8 px base) ──────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+
+  /* ── Component geometry ─────────────────────────────────── */
+  --radius:         4px;    /* 4 px grid */
+  --row-height:     32px;   /* compact 32 px rows */
+  --panel-width-left:  272px;
+  --panel-width-right: 384px;
+
+  /* ── Motion (easing only — no linear for position) ─────── */
+  --ease-out-cubic:   cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-inout-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-out-expo:    cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast:    160ms;
+  --duration-panel:   220ms;
+  --duration-layer:   240ms;
+
+  /* ── Shadows ─────────────────────────────────────────────── */
+  --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.6), 0 1px 0 var(--border-hairline);
+}
+
+/* Reduced-motion overrides */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast:    80ms;
+    --duration-panel:   80ms;
+    --duration-layer:   80ms;
+  }
+}
+
+/* Focus ring — WCAG AA compliant */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+

@@ -1,0 +1,8 @@
+{
+  "name": "CyberTrace Globe",
+  "description": "Real-Time Network Threat Intelligence & Digital Forensics Platform with an interactive 3D CesiumJS globe, live WebSocket threat streaming, transparent risk scoring, forensic case management, and Gemini-assisted analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

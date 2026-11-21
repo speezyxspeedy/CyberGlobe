@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated investigator profile and role assignment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["Viewer", "Analyst", "Admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record for authenticated investigators.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "ProtectedAsset": {
+      "title": "ProtectedAsset",
+      "description": "Monitored server, API, cloud instance, office, or internal network segment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "ipOrInternalId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "locationLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "assetType": { "type": "string", "enum": ["web_server", "database", "api", "cloud_vm", "firewall", "email_server", "workstation"] },
+        "criticality": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "openPorts": { "type": "array" },
+        "riskScore": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "ipOrInternalId", "locationLabel", "latitude", "longitude", "assetType", "criticality", "openPorts", "riskScore", "createdAt", "updatedAt"]
+    },
+    "InvestigationCase": {
+      "title": "InvestigationCase",
+      "description": "Digital forensics investigation case with linked indicators and lifecycle status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "status": { "type": "string", "enum": ["open", "investigating", "contained", "escalated", "closed"] },
+        "assignedAnalyst": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "tags": { "type": "array" },
+        "linkedEventIds": { "type": "array" },
+        "linkedIps": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "description", "priority", "status", "assignedAnalyst", "tags", "linkedEventIds", "linkedIps", "createdAt", "updatedAt"]
+    },
+    "CaseNote": {
+      "title": "CaseNote",
+      "description": "Investigator note attached to a forensic case.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "caseId", "authorId", "authorName", "content", "createdAt"]
+    },
+    "EvidenceFile": {
+      "title": "EvidenceFile",
+      "description": "Immutable chain-of-custody evidence metadata with SHA-256 integrity hash.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "fileType": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "fileSize": { "type": "number" },
+        "sha256Hash": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "collectedBy": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sourceSystem": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "integrityStatus": { "type": "string", "enum": ["verified", "pending", "tampered"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "caseId", "ownerId", "fileName", "fileType", "fileSize", "sha256Hash", "collectedBy", "sourceSystem", "integrityStatus", "createdAt"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Append-only immutable forensic audit log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "targetType": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "details": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "entryHash": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorId", "actorName", "action", "targetType", "targetId", "details", "entryHash", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public investigator profile and role (non-PII)."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Owner-only private PII document (email)."
+    },
+    "/assets/{assetId}": {
+      "schema": { "$ref": "#/entities/ProtectedAsset" },
+      "description": "Monitored target assets owned by investigators."
+    },
+    "/cases/{caseId}": {
+      "schema": { "$ref": "#/entities/InvestigationCase" },
+      "description": "Forensic investigation cases."
+    },
+    "/cases/{caseId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/CaseNote" },
+      "description": "Investigator notes belonging to a parent case."
+    },
+    "/cases/{caseId}/evidence/{evidenceId}": {
+      "schema": { "$ref": "#/entities/EvidenceFile" },
+      "description": "Immutable chain-of-custody evidence records belonging to a parent case."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogEntry" },
+      "description": "Append-only immutable audit trail."
+    }
+  }
+}

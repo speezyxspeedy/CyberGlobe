@@ -1,0 +1,320 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Default-deny global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable hardened global primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Pure token check (zero DB reads) safe for allow list queries
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'gshubh349@gmail.com';
+    }
+
+    // Full admin check for single-document operations
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data, uid) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == uid &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.role is string && data.role in ['Viewer', 'Analyst', 'Admin'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == uid &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProtectedAsset(data, assetId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'name', 'ipOrInternalId', 'locationLabel',
+          'latitude', 'longitude', 'assetType', 'criticality', 'openPorts',
+          'riskScore', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'name', 'ipOrInternalId', 'locationLabel',
+          'latitude', 'longitude', 'assetType', 'criticality', 'openPorts',
+          'riskScore', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) && data.id == assetId &&
+        isValidId(data.ownerId) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+        data.ipOrInternalId is string && data.ipOrInternalId.size() >= 1 && data.ipOrInternalId.size() <= 64 &&
+        data.locationLabel is string && data.locationLabel.size() >= 1 && data.locationLabel.size() <= 120 &&
+        data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
+        data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
+        data.assetType is string && data.assetType in ['web_server', 'database', 'api', 'cloud_vm', 'firewall', 'email_server', 'workstation'] &&
+        data.criticality is string && data.criticality in ['low', 'medium', 'high', 'critical'] &&
+        data.openPorts is list && data.openPorts.size() <= 32 &&
+        (data.openPorts.size() == 0 || data.openPorts[0] is int) &&
+        data.riskScore is number && data.riskScore >= 0 && data.riskScore <= 100 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCase(data, caseId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'title', 'description', 'priority', 'status',
+          'assignedAnalyst', 'tags', 'linkedEventIds', 'linkedIps', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'title', 'description', 'priority', 'status',
+          'assignedAnalyst', 'tags', 'linkedEventIds', 'linkedIps', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) && data.id == caseId &&
+        isValidId(data.ownerId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 180 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 4000 &&
+        data.priority is string && data.priority in ['low', 'medium', 'high', 'critical'] &&
+        data.status is string && data.status in ['open', 'investigating', 'contained', 'escalated', 'closed'] &&
+        data.assignedAnalyst is string && data.assignedAnalyst.size() >= 1 && data.assignedAnalyst.size() <= 120 &&
+        data.tags is list && data.tags.size() <= 10 &&
+        (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40)) &&
+        data.linkedEventIds is list && data.linkedEventIds.size() <= 50 &&
+        (data.linkedEventIds.size() == 0 || (data.linkedEventIds[0] is string && data.linkedEventIds[0].size() <= 128)) &&
+        data.linkedIps is list && data.linkedIps.size() <= 50 &&
+        (data.linkedIps.size() == 0 || (data.linkedIps[0] is string && data.linkedIps[0].size() <= 64)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCaseNote(data, caseId, noteId) {
+      return data.keys().hasAll(['id', 'caseId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'caseId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+        isValidId(data.id) && data.id == noteId &&
+        isValidId(data.caseId) && data.caseId == caseId &&
+        isValidId(data.authorId) && data.authorId == request.auth.uid &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 120 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 3000 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidEvidenceFile(data, caseId, evidenceId) {
+      return data.keys().hasAll([
+          'id', 'caseId', 'ownerId', 'fileName', 'fileType', 'fileSize',
+          'sha256Hash', 'collectedBy', 'sourceSystem', 'integrityStatus', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'caseId', 'ownerId', 'fileName', 'fileType', 'fileSize',
+          'sha256Hash', 'collectedBy', 'sourceSystem', 'integrityStatus', 'createdAt'
+        ]) &&
+        isValidId(data.id) && data.id == evidenceId &&
+        isValidId(data.caseId) && data.caseId == caseId &&
+        isValidId(data.ownerId) && data.ownerId == request.auth.uid &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+        data.fileType is string && data.fileType.size() >= 1 && data.fileType.size() <= 64 &&
+        data.fileSize is number && data.fileSize >= 0 && data.fileSize <= 52428800 &&
+        data.sha256Hash is string && data.sha256Hash.size() == 64 && data.sha256Hash.matches('^[a-f0-9]{64}$') &&
+        data.collectedBy is string && data.collectedBy.size() >= 1 && data.collectedBy.size() <= 120 &&
+        data.sourceSystem is string && data.sourceSystem.size() >= 1 && data.sourceSystem.size() <= 120 &&
+        data.integrityStatus is string && data.integrityStatus in ['verified', 'pending', 'tampered'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll([
+          'id', 'actorId', 'actorName', 'action', 'targetType', 'targetId',
+          'details', 'entryHash', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'actorId', 'actorName', 'action', 'targetType', 'targetId',
+          'details', 'entryHash', 'createdAt'
+        ]) &&
+        isValidId(data.id) && data.id == logId &&
+        isValidId(data.actorId) && data.actorId == request.auth.uid &&
+        data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 120 &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 120 &&
+        data.targetType is string && data.targetType.size() >= 1 && data.targetType.size() <= 64 &&
+        data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+        data.details is string && data.details.size() >= 1 && data.details.size() <= 1000 &&
+        data.entryHash is string && data.entryHash.size() == 64 && data.entryHash.matches('^[a-f0-9]{64}$') &&
+        data.createdAt is timestamp;
+    }
+
+    // Connection health check (non-PII, read-only)
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Trusted Admin roster (read-only from clients)
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && isOwner(adminUid);
+      allow list, write: if false;
+    }
+
+    // Users collection (public non-PII profile + split private PII subcollection)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().role == 'Analyst' || incoming().role == 'Viewer' || (incoming().role == 'Admin' && isAdmin()));
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) && isValidId(docId) &&
+          isOwner(userId) &&
+          isValidUserPrivateInfo(incoming(), userId) &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() &&
+          isValidId(userId) && isValidId(docId) &&
+          isValidUserPrivateInfo(incoming(), userId) &&
+          incoming().uid == existing().uid &&
+          incoming().updatedAt == request.time &&
+          (isOwner(userId) || isAdmin()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    // Protected Target Assets
+    match /assets/{assetId} {
+      allow get: if isValidId(assetId) && isSignedIn() && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(assetId) &&
+        isValidProtectedAsset(incoming(), assetId) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(assetId) &&
+        isValidProtectedAsset(incoming(), assetId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'locationLabel', 'criticality', 'openPorts', 'riskScore', 'updatedAt']))
+        );
+      allow delete: if isVerifiedUser() && isValidId(assetId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    // Investigation Cases & Master-Gated Subcollections
+    match /cases/{caseId} {
+      allow get: if isValidId(caseId) && isSignedIn() && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(caseId) &&
+        isValidCase(incoming(), caseId) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(caseId) &&
+        isValidCase(incoming(), caseId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            existing().ownerId == request.auth.uid &&
+            existing().status != 'closed' && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'priority', 'status', 'assignedAnalyst', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'linkedEventIds', 'linkedIps', 'updatedAt'])
+            )
+          )
+        );
+      allow delete: if isVerifiedUser() && isValidId(caseId) && isAdmin();
+
+      match /notes/{noteId} {
+        allow get: if isValidId(caseId) && isValidId(noteId) && isSignedIn() && (
+          isAdmin() ||
+          get(/databases/$(database)/documents/cases/$(caseId)).data.ownerId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (resource.data.authorId == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() &&
+          isValidId(caseId) && isValidId(noteId) &&
+          isValidCaseNote(incoming(), caseId, noteId) &&
+          incoming().createdAt == request.time &&
+          exists(/databases/$(database)/documents/cases/$(caseId)) && (
+            isAdmin() ||
+            get(/databases/$(database)/documents/cases/$(caseId)).data.ownerId == request.auth.uid
+          );
+        allow update, delete: if false;
+      }
+
+      match /evidence/{evidenceId} {
+        allow get: if isValidId(caseId) && isValidId(evidenceId) && isSignedIn() && (
+          isAdmin() ||
+          get(/databases/$(database)/documents/cases/$(caseId)).data.ownerId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isVerifiedUser() &&
+          isValidId(caseId) && isValidId(evidenceId) &&
+          isValidEvidenceFile(incoming(), caseId, evidenceId) &&
+          incoming().createdAt == request.time &&
+          exists(/databases/$(database)/documents/cases/$(caseId)) && (
+            isAdmin() ||
+            get(/databases/$(database)/documents/cases/$(caseId)).data.ownerId == request.auth.uid
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    // Immutable Append-Only Forensic Audit Logs
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().actorId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.actorId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(logId) &&
+        isValidAuditLog(incoming(), logId) &&
+        incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
