@@ -24,6 +24,10 @@ const LAYER_ITEMS: Array<{key: LayerKey; label: string; group: string; colorToke
   {key: 'threatReputation', label: 'Threat Reputation',       group: 'Intelligence',  colorToken: '#fb923c'},
   {key: 'globalHeatmap',    label: 'Global Threat Heatmap',   group: 'Intelligence',  colorToken: '#3DDC97'},
   {key: 'geoRiskMatrix',    label: 'Geographic Risk Matrix',  group: 'Intelligence',  colorToken: '#3DDC97'},
+  {key: 'githubRepos',      label: 'GitHub Vault Repositories', group: 'CodeSec',      colorToken: '#38bdf8'},
+  {key: 'exposedSecrets',   label: 'Exposed Secrets (Masked)', group: 'CodeSec',      colorToken: '#ef4444'},
+  {key: 'supplyChain',      label: 'Supply Chain CVEs',         group: 'CodeSec',      colorToken: '#f97316'},
+  {key: 'developerActivity',label: 'Developer Anomalies',       group: 'CodeSec',      colorToken: '#eab308'},
 ];
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low'];
@@ -80,6 +84,10 @@ export function LeftControlSidebar() {
     threatReputation: filteredAll.filter((e) => e.abuseConfidence >= 70).length,
     globalHeatmap:    useForensicsStore.getState().statistics?.geoRiskMatrix.length ?? 0,
     geoRiskMatrix:    useForensicsStore.getState().statistics?.geoRiskMatrix.length ?? 0,
+    githubRepos:      useForensicsStore.getState().githubRepositories.length,
+    exposedSecrets:   useForensicsStore.getState().githubSecrets.length,
+    supplyChain:      useForensicsStore.getState().githubVulnerabilities.length,
+    developerActivity:useForensicsStore.getState().githubDeveloperActivities.length,
   };
 
   if (!open) {

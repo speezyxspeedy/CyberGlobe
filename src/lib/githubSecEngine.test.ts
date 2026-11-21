@@ -110,3 +110,4 @@ test('buildDemoGitHubOrganization adheres to all ground rules and contains DEMO 
   assert.equal(devAct!.isOffHours, true);
   assert.ok(devAct!.anomalyScore >= 75);
 });
+

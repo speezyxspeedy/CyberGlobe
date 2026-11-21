@@ -15,6 +15,14 @@ import type {
   ThreatEvent,
   UserRole,
   WsMessage,
+  GitHubAuditEvent,
+  GitHubConnectionStatus,
+  GitHubDeveloperActivity,
+  GitHubRepository,
+  GitHubScanReport,
+  GitHubSecretAlert,
+  GitHubVulnerability,
+  GitHubWorkflowRun,
 } from '../types/forensics';
 import {
   persistAssetToFirestore,
@@ -24,7 +32,7 @@ import {
   persistEvidenceToFirestore,
 } from '../lib/firebase';
 
-export type ActiveWorkspaceTab = 'globe' | 'investigations' | 'analytics' | 'ingestion' | 'analyst';
+export type ActiveWorkspaceTab = 'globe' | 'investigations' | 'analytics' | 'ingestion' | 'analyst' | 'github';
 
 export type SelectedEntity =
   | {kind: 'event'; eventId: string}
@@ -132,6 +140,22 @@ interface ForensicsStore {
   ingestLogs: (rawLogs: string, format: string, source: string) => Promise<{ingestedCount: number; evidenceSha256: string; events: ThreatEvent[]} | null>;
   handleWsMessage: (msg: WsMessage) => void;
   setWsStatus: (status: 'connecting' | 'connected' | 'disconnected') => void;
+
+  githubStatus: GitHubConnectionStatus | null;
+  githubRepositories: GitHubRepository[];
+  githubSecrets: GitHubSecretAlert[];
+  githubVulnerabilities: GitHubVulnerability[];
+  githubWorkflows: GitHubWorkflowRun[];
+  githubDeveloperActivities: GitHubDeveloperActivity[];
+  githubAuditEvents: GitHubAuditEvent[];
+  githubScanReport: GitHubScanReport | null;
+  githubLoading: boolean;
+
+  fetchGitHubData: () => Promise<void>;
+  triggerGitHubScan: () => Promise<GitHubScanReport | null>;
+  linkRepoToAsset: (repoId: string, assetId: string) => Promise<void>;
+  connectGitHub: (orgName?: string) => Promise<void>;
+  disconnectGitHub: (deleteData?: boolean) => Promise<void>;
 }
 
 const DEFAULT_LAYERS: LayerVisibility = {
@@ -146,6 +170,10 @@ const DEFAULT_LAYERS: LayerVisibility = {
   threatReputation: false,
   globalHeatmap: true,
   geoRiskMatrix: false,
+  githubRepos: true,
+  exposedSecrets: true,
+  supplyChain: true,
+  developerActivity: true,
 };
 
 const DEFAULT_FILTERS: FilterState = {
@@ -195,6 +223,16 @@ export const useForensicsStore = create<ForensicsStore>((set, get) => {
     error: null,
     wsStatus: 'connecting',
     toastMessage: null,
+
+    githubStatus: null,
+    githubRepositories: [],
+    githubSecrets: [],
+    githubVulnerabilities: [],
+    githubWorkflows: [],
+    githubDeveloperActivities: [],
+    githubAuditEvents: [],
+    githubScanReport: null,
+    githubLoading: false,
 
     activeTab: 'globe',
     selectedEntity: null,
@@ -309,6 +347,8 @@ export const useForensicsStore = create<ForensicsStore>((set, get) => {
           liveAlerts,
           loading: false,
         });
+
+        void get().fetchGitHubData();
       } catch (err) {
         set({
           loading: false,
@@ -606,6 +646,116 @@ export const useForensicsStore = create<ForensicsStore>((set, get) => {
     },
 
     setWsStatus: (wsStatus) => set({wsStatus}),
+
+    fetchGitHubData: async () => {
+      try {
+        set({ githubLoading: true });
+        const [statRes, repoRes, secRes, vulnRes, wfRes, devRes, audRes] = await Promise.all([
+          fetch('/api/github/connection/status'),
+          fetch('/api/github/repositories'),
+          fetch('/api/github/secrets'),
+          fetch('/api/github/vulnerabilities'),
+          fetch('/api/github/workflows'),
+          fetch('/api/github/developer-activity'),
+          fetch('/api/github/audit-events'),
+        ]);
+
+        const [status, repoData, secData, vulnData, wfData, devData, audData] = await Promise.all([
+          statRes.ok ? statRes.json() : null,
+          repoRes.ok ? repoRes.json() : { repositories: [] },
+          secRes.ok ? secRes.json() : { secrets: [] },
+          vulnRes.ok ? vulnRes.json() : { vulnerabilities: [] },
+          wfRes.ok ? wfRes.json() : { workflows: [] },
+          devRes.ok ? devRes.json() : { activities: [] },
+          audRes.ok ? audRes.json() : { auditEvents: [] },
+        ]);
+
+        set({
+          githubStatus: status,
+          githubRepositories: repoData.repositories || [],
+          githubSecrets: secData.secrets || [],
+          githubVulnerabilities: vulnData.vulnerabilities || [],
+          githubWorkflows: wfData.workflows || [],
+          githubDeveloperActivities: devData.activities || [],
+          githubAuditEvents: audData.auditEvents || [],
+          githubLoading: false,
+        });
+      } catch {
+        set({ githubLoading: false });
+      }
+    },
+
+    triggerGitHubScan: async () => {
+      try {
+        set({ githubLoading: true });
+        const res = await fetch('/api/github/scan', {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          showToast(`GitHub Scan Failed: ${err.error || 'Server error'}`);
+          set({ githubLoading: false });
+          return null;
+        }
+        const data = await res.json();
+        set({ githubScanReport: data.scanReport });
+        await get().fetchGitHubData();
+        showToast(`GitHub CodeSec Scan Complete. Risk Score: ${data.scanReport.overallOrgRiskScore}/100`);
+        return data.scanReport;
+      } catch {
+        set({ githubLoading: false });
+        return null;
+      }
+    },
+
+    linkRepoToAsset: async (repoId: string, assetId: string) => {
+      try {
+        const res = await fetch(`/api/github/repositories/${encodeURIComponent(repoId)}/link-asset`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ assetId }),
+        });
+        if (res.ok) {
+          await get().fetchGitHubData();
+          showToast(`Linked repository ${repoId} to asset`);
+        }
+      } catch {
+        showToast('Failed to link asset');
+      }
+    },
+
+    connectGitHub: async (orgName = 'ApexCyber-Global-Org') => {
+      try {
+        const res = await fetch('/api/github/connect', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ organizationName: orgName }),
+        });
+        if (res.ok) {
+          await get().fetchGitHubData();
+          showToast(`Connected GitHub organization: ${orgName}`);
+        }
+      } catch {
+        showToast('Failed to connect GitHub');
+      }
+    },
+
+    disconnectGitHub: async (deleteData = false) => {
+      try {
+        const res = await fetch('/api/github/disconnect', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ deleteData }),
+        });
+        if (res.ok) {
+          await get().fetchGitHubData();
+          showToast('Disconnected GitHub organization');
+        }
+      } catch {
+        showToast('Failed to disconnect GitHub');
+      }
+    },
   };
 });
 

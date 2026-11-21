@@ -4,6 +4,7 @@ import {
   BarChart3,
   Briefcase,
   FileUp,
+  GitBranch,
   Globe,
   LogIn,
   LogOut,
@@ -19,6 +20,7 @@ import type {UserRole} from '../types/forensics';
 const NAV_TABS: Array<{id: ActiveWorkspaceTab; label: string; icon: typeof Globe}> = [
   {id: 'globe', label: 'Globe', icon: Globe},
   {id: 'investigations', label: 'Cases', icon: Briefcase},
+  {id: 'github', label: 'CodeSec', icon: GitBranch},
   {id: 'analytics', label: 'Analytics', icon: BarChart3},
   {id: 'ingestion', label: 'Log Ingest', icon: FileUp},
   {id: 'analyst', label: 'Forensic AI', icon: Sparkles},

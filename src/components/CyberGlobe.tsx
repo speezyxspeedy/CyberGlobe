@@ -77,6 +77,11 @@ export function CyberGlobe() {
   const setSelectedEntity = useForensicsStore((s) => s.setSelectedEntity);
   const fetchIpIntelligence = useForensicsStore((s) => s.fetchIpIntelligence);
 
+  const githubRepositories = useForensicsStore((s) => s.githubRepositories);
+  const githubSecrets = useForensicsStore((s) => s.githubSecrets);
+  const githubVulnerabilities = useForensicsStore((s) => s.githubVulnerabilities);
+  const githubDeveloperActivities = useForensicsStore((s) => s.githubDeveloperActivities);
+
   const filteredEvents = useMemo(
     () => selectFilteredEvents(events, filters, layers, timelineMode, replayProgress),
     [events, filters, layers, timelineMode, replayProgress]
@@ -570,10 +575,284 @@ export function CyberGlobe() {
       }
     });
 
+    // 5. GitHub CodeSec Vault Repositories Layer
+    if (layers.githubRepos && githubRepositories.length > 0) {
+      githubRepositories.forEach((repo) => {
+        if (!repo.locationCoordinates) return;
+        const isCritical = repo.riskScore >= 80;
+        const isHigh = repo.riskScore >= 60;
+        const repoColor = isCritical ? '#ef4444' : isHigh ? '#f97316' : '#38bdf8';
+        const cesiumRepoColor = Cesium.Color.fromCssColorString(repoColor);
+
+        // Vault Outline Ellipse
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(
+            repo.locationCoordinates.longitude,
+            repo.locationCoordinates.latitude,
+            5_000
+          ),
+          ellipse: {
+            semiMajorAxis: 260_000,
+            semiMinorAxis: 260_000,
+            material: cesiumRepoColor.withAlpha(0.12),
+            outline: true,
+            outlineColor: cesiumRepoColor.withAlpha(0.85),
+            outlineWidth: isCritical ? 2.5 : 1.5,
+            height: 5_000,
+          },
+          properties: {
+            entityKind: 'github_repo',
+            hoverTitle: `Vault: ${repo.name}`,
+            hoverSubtitle: `Repository Risk ${repo.riskScore}/100 (${repo.riskLevel.toUpperCase()}) · ${repo.language}`,
+            hoverDetail: `Branch Protection: ${repo.branchProtection?.enabled ? 'Active' : 'Disabled'} · Secrets: ${repo.exposedSecretCount} · CVEs: ${repo.vulnerabilityCount?.critical || 0} crit`,
+            hoverSeverity: repo.riskLevel,
+          },
+        });
+
+        // Core Vault marker point
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(
+            repo.locationCoordinates.longitude,
+            repo.locationCoordinates.latitude,
+            24_000
+          ),
+          point: {
+            pixelSize: isCritical ? 13 : 10,
+            color: cesiumRepoColor,
+            outlineColor: Cesium.Color.fromCssColorString('#ffffff'),
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          label: {
+            text: `[Vault] ${repo.name} · ${repo.riskScore}`,
+            font: '600 11px "JetBrains Mono", monospace',
+            fillColor: Cesium.Color.fromCssColorString('#e2e8f0'),
+            outlineColor: Cesium.Color.fromCssColorString('#050811'),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, 18),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 16_000_000),
+          },
+          properties: {
+            entityKind: 'github_repo',
+            hoverTitle: `Vault: ${repo.name}`,
+            hoverSubtitle: `Repository Risk ${repo.riskScore}/100 (${repo.riskLevel.toUpperCase()}) · ${repo.language}`,
+            hoverDetail: `Branch Protection: ${repo.branchProtection?.enabled ? 'Active' : 'Disabled'} · Secrets: ${repo.exposedSecretCount} · CVEs: ${repo.vulnerabilityCount?.critical || 0} crit`,
+            hoverSeverity: repo.riskLevel,
+          },
+        });
+
+        // CI/CD Animated Workflow Arcs: Connect repo to linked cloud asset
+        if (repo.linkedAssetId) {
+          const linkedAsset = assets.find((a) => a.id === repo.linkedAssetId);
+          if (linkedAsset) {
+            const pipelineArcPositions = buildArcPositions(
+              repo.locationCoordinates.longitude,
+              repo.locationCoordinates.latitude,
+              linkedAsset.longitude,
+              linkedAsset.latitude,
+              30
+            );
+
+            viewer.entities.add({
+              polyline: {
+                positions: pipelineArcPositions,
+                width: 2.2,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                  glowPower: 0.2,
+                  color: Cesium.Color.fromCssColorString('#38bdf8').withAlpha(0.85),
+                }),
+              },
+              properties: {
+                entityKind: 'ci_cd_arc',
+                hoverTitle: `CI/CD Pipeline: ${repo.name} → ${linkedAsset.name}`,
+                hoverSubtitle: `Automated Deployment Pipeline · Blast Radius: ${repo.blastRadiusScore}/100`,
+                hoverDetail: `Deployed to ${linkedAsset.locationLabel} (${linkedAsset.criticality.toUpperCase()})`,
+                hoverSeverity: 'medium',
+              },
+            });
+          }
+        }
+      });
+    }
+
+    // 6. Exposed Secrets Layer (Red Alert Markers)
+    if (layers.exposedSecrets && githubSecrets.length > 0) {
+      githubSecrets.forEach((sec) => {
+        const repo = githubRepositories.find((r) => r.id === sec.repositoryId || r.name === sec.repositoryName);
+        if (!repo?.locationCoordinates) return;
+
+        const secLon = repo.locationCoordinates.longitude + 0.35;
+        const secLat = repo.locationCoordinates.latitude + 0.25;
+
+        const alertPulse = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(secLon, secLat, 10_000),
+          ellipse: {
+            semiMajorAxis: 180_000,
+            semiMinorAxis: 180_000,
+            material: Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.18),
+            outline: true,
+            outlineColor: Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.95),
+            outlineWidth: 2,
+            height: 10_000,
+          },
+          properties: {
+            entityKind: 'github_secret',
+            hoverTitle: `🚨 LEAKED SECRET: ${sec.secretTypeLabel}`,
+            hoverSubtitle: `Masked Fingerprint: ${sec.maskedFingerprint} (${sec.exposureRisk.toUpperCase()})`,
+            hoverDetail: `${sec.repositoryName} → ${sec.filePath}:${sec.line} · Commit ${sec.commitSha.slice(0, 7)} by ${sec.commitAuthor}`,
+            hoverSeverity: 'critical',
+          },
+        });
+        newPulses.push({ entity: alertPulse, baseRadius: 180_000 });
+
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(secLon, secLat, 28_000),
+          point: {
+            pixelSize: 12,
+            color: Cesium.Color.fromCssColorString('#ef4444'),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          label: {
+            text: `🚨 ${sec.maskedFingerprint}`,
+            font: '700 11px "JetBrains Mono", monospace',
+            fillColor: Cesium.Color.fromCssColorString('#fca5a5'),
+            outlineColor: Cesium.Color.fromCssColorString('#450a0a'),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -16),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 14_000_000),
+          },
+          properties: {
+            entityKind: 'github_secret',
+            hoverTitle: `🚨 LEAKED SECRET: ${sec.secretTypeLabel}`,
+            hoverSubtitle: `Masked Fingerprint: ${sec.maskedFingerprint} (${sec.exposureRisk.toUpperCase()})`,
+            hoverDetail: `${sec.repositoryName} → ${sec.filePath}:${sec.line} · Remediation: ${sec.remediationPlan[0]}`,
+            hoverSeverity: 'critical',
+          },
+        });
+      });
+    }
+
+    // 7. Supply-Chain Vulnerabilities Layer (Orange Markers)
+    if (layers.supplyChain && githubVulnerabilities.length > 0) {
+      githubVulnerabilities.forEach((vuln) => {
+        const repo = githubRepositories.find((r) => r.id === vuln.repositoryId || r.name === vuln.repositoryName);
+        if (!repo?.locationCoordinates) return;
+
+        const vLon = repo.locationCoordinates.longitude - 0.35;
+        const vLat = repo.locationCoordinates.latitude - 0.25;
+
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(vLon, vLat, 22_000),
+          point: {
+            pixelSize: 9,
+            color: Cesium.Color.fromCssColorString('#f97316'),
+            outlineColor: Cesium.Color.fromCssColorString('#ffedd5'),
+            outlineWidth: 1.5,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          label: {
+            text: `📦 ${vuln.cveId} (${vuln.packageName})`,
+            font: '600 10px "JetBrains Mono", monospace',
+            fillColor: Cesium.Color.fromCssColorString('#fed7aa'),
+            outlineColor: Cesium.Color.fromCssColorString('#431407'),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, 16),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 12_000_000),
+          },
+          properties: {
+            entityKind: 'github_vuln',
+            hoverTitle: `${vuln.cveId}: ${vuln.packageName} v${vuln.currentVersion}`,
+            hoverSubtitle: `Vulnerable Dependency · Fix: v${vuln.fixedVersion || 'N/A'} · ${vuln.severity.toUpperCase()}`,
+            hoverDetail: `${vuln.summary} (${vuln.manifestPath})`,
+            hoverSeverity: vuln.severity,
+          },
+        });
+      });
+    }
+
+    // 8. Developer Anomalies Layer (Yellow Markers)
+    if (layers.developerActivity && githubDeveloperActivities.length > 0) {
+      githubDeveloperActivities.forEach((dev) => {
+        if (!dev.location) return;
+
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(dev.location.longitude, dev.location.latitude, 25_000),
+          point: {
+            pixelSize: 11,
+            color: Cesium.Color.fromCssColorString('#eab308'),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          label: {
+            text: `👤 ${dev.actor || dev.username} (${dev.isOffHours ? 'Off-Hours' : 'Anomaly'})`,
+            font: '600 10px "JetBrains Mono", monospace',
+            fillColor: Cesium.Color.fromCssColorString('#fef08a'),
+            outlineColor: Cesium.Color.fromCssColorString('#422006'),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -16),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 14_000_000),
+          },
+          properties: {
+            entityKind: 'github_dev',
+            hoverTitle: `Developer Anomaly: ${dev.actor || dev.username}`,
+            hoverSubtitle: `${dev.anomalyReason} · Score ${dev.anomalyScore}/100`,
+            hoverDetail: `Modified: ${dev.filesChanged.join(', ')} · IP: ${dev.ipAddress || 'Internal'} (${dev.location.city})`,
+            hoverSeverity: dev.anomalyScore >= 75 ? 'critical' : 'high',
+          },
+        });
+      });
+    }
+
+    // 9. Simulated Attack Arc from Suspicious IP to Compromised Repository
+    // (Amsterdam 52.3676, 4.9041 -> Ashburn infra-cloud-terraform 39.0438, -77.4874)
+    if (layers.attackArcs) {
+      const amsToAshburnArc = buildArcPositions(4.9041, 52.3676, -77.4874, 39.0438, 36);
+      viewer.entities.add({
+        polyline: {
+          positions: amsToAshburnArc,
+          width: 3.2,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.3,
+            color: Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.95),
+          }),
+        },
+        properties: {
+          entityKind: 'attack_arc',
+          hoverTitle: 'Simulated Attack Arc: Credential Access to infra-cloud-terraform',
+          hoverSubtitle: '198.51.100.204 (Amsterdam VPN) → infra-cloud-terraform (Ashburn)',
+          hoverDetail: 'Exploitation of leaked AWS IAM Access Key AKIA••••••••••••7X9A',
+          hoverSeverity: 'critical',
+        },
+      });
+
+      const attackPacket = viewer.entities.add({
+        position: amsToAshburnArc[0],
+        point: {
+          pixelSize: 7,
+          color: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString('#ef4444'),
+          outlineWidth: 2,
+        },
+      });
+      newArcPackets.push({
+        entity: attackPacket,
+        positions: amsToAshburnArc,
+        speed: 1.6,
+        phase: 0.45,
+      });
+    }
+
     arcCacheRef.current = newArcPackets;
     pulseCacheRef.current = newPulses;
     viewer.scene.requestRender();
-  }, [filteredEvents, assets, statistics, layers, globeReady]);
+  }, [filteredEvents, assets, statistics, layers, globeReady, githubRepositories, githubSecrets, githubVulnerabilities, githubDeveloperActivities]);
 
   if (webglError) {
     return (

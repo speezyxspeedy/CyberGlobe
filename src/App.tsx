@@ -14,6 +14,7 @@ import {CasesWorkspace} from './components/CasesWorkspace';
 import {AnalyticsView} from './components/AnalyticsView';
 import {LogIngestionView} from './components/LogIngestionView';
 import {ForensicAnalystView} from './components/ForensicAnalystView';
+import {GitHubCodeSecView} from './components/GitHubCodeSecView';
 import type {WsMessage} from './types/forensics';
 
 function CyberTraceWorkspace() {
@@ -129,6 +130,7 @@ function CyberTraceWorkspace() {
 
         {/* Secondary Dedicated Workspaces */}
         {activeTab === 'investigations' && <CasesWorkspace />}
+        {activeTab === 'github' && <GitHubCodeSecView />}
         {activeTab === 'analytics' && <AnalyticsView />}
         {activeTab === 'ingestion' && <LogIngestionView />}
         {activeTab === 'analyst' && <ForensicAnalystView />}

@@ -353,6 +353,7 @@ export interface GitHubSecretAlert {
   repositoryId: string;
   repositoryName: string;
   maskedFingerprint: string; // e.g. "AKIA••••••••••••7X9A" — NEVER display raw secret
+  secretFingerprint?: string; // alias
   filePath: string;
   line: number;
   commitSha: string;
@@ -404,6 +405,8 @@ export interface GitHubWorkflowRun {
 export interface GitHubDeveloperActivity {
   id: string;
   username: string;
+  actor?: string; // alias for username
+  ipAddress?: string; // source egress IP if captured
   email: string;
   repositoryId: string;
   repositoryName: string;
@@ -438,11 +441,15 @@ export interface GitHubAuditEvent {
 export interface GitHubConnectionStatus {
   connected: boolean;
   orgName?: string;
+  organizationName?: string; // alias
   installationId?: string;
   connectedAt?: string;
+  installedAt?: string; // alias
   lastScanAt?: string;
+  lastSyncAt?: string; // alias
   selectedRepoCount: number;
   totalRepoCount: number;
+  selectedRepositories?: string[];
   permissions: {
     contents: 'read';
     pull_requests: 'read';
@@ -454,6 +461,8 @@ export interface GitHubConnectionStatus {
   };
   retentionPolicyDays: number;
   dataProcessingPurpose: string;
+  dataRetentionPolicy?: string;
+  accountType?: 'organization' | 'user';
   tokenStorageMode: 'encrypted_at_rest_aes_256_gcm';
   isDemoData: boolean;
 }

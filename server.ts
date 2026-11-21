@@ -35,6 +35,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Server-authoritative state initialized with realistic labeled DEMO DATA
 const store = buildDemoDataset();
+const githubStore = buildDemoGitHubOrganization();
 
 function isValidIpv4(ip: string): boolean {
   return /^(?:(?:25[0-5]|2[0-4]\d|1?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|1?\d\d?)$/.test(ip);
@@ -966,79 +967,439 @@ Always include the notice: "Approximate network location · Investigative lead o
     const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
       return res.status(503).json({
-       );
-    });
-}    }
+        error: 'Gemini API key is not configured on the server. Add GEMINI_API_KEY in .env to run AI forensic analysis.',
+      });
+    }
 
+    const selectedEventId = req.body.selectedEventId ? String(req.body.selectedEventId) : null;
+    const selectedCaseId = req.body.selectedCaseId ? String(req.body.selectedCaseId) : null;
+    const selectedIp = req.body.selectedIp ? String(req.body.selectedIp) : null;
+    const activeFilters = req.body.filters ?? {};
 
-const selectedEventId = req.body.selectedEventId ? String(req.body.selectedEventId) : null;
-const selectedCaseId = req.body.selectedCaseId ? String(req.body.selectedCaseId) : null;
-const selectedIp = req.body.selectedIp ? String(req.body.selectedIp) : null;
-const activeFilters = req.body.filters ?? {};
+    const contextPayload = {
+      forensicRules: [
+        'NEVER invent facts, IPs, hashes, or log entries not present in the supplied telemetry.',
+        'Clearly separate verified evidence, correlation-based inference, and DEMO DATA.',
+        'NEVER present IP geolocation as proof of a person physical location or identity; always cite accuracy radius km and anonymization caveats.',
+        'If evidence is insufficient, explicitly list missing logs/artifacts under evidenceGaps.',
+      ],
+      activeFilters,
+      selectedEvent: selectedEventId ? store.events.find((e) => e.id === selectedEventId) ?? null : null,
+      selectedCase: selectedCaseId ? store.cases.find((c) => c.id === selectedCaseId) ?? null : null,
+      selectedIpIntel: selectedIp ? store.ipIntel[selectedIp] ?? null : null,
+      recentEvents: store.events.slice(0, 18).map((e) => ({
+        id: e.id,
+        eventType: e.eventType,
+        severity: e.severity,
+        riskScore: e.riskScore,
+        sourceIp: e.sourceIp,
+        approxLocation: `${e.sourceLocation.city}, ${e.sourceLocation.country} (±${e.sourceLocation.accuracyRadiusKm} km)`,
+        asn: e.asn,
+        isp: e.isp,
+        connectionType: e.connectionType,
+        vpnProbability: e.vpnProbability,
+        targetAsset: e.targetAssetName,
+        maskedDestinationIp: e.maskedDestinationIp,
+        timestamp: e.timestamp,
+        status: e.status,
+        caseId: e.caseId,
+        isDemoData: e.isDemoData,
+        metadata: e.metadata,
+      })),
+      assets: store.assets.map((a) => ({
+        id: a.id,
+        name: a.name,
+        location: a.locationLabel,
+        type: a.assetType,
+        criticality: a.criticality,
+        riskScore: a.riskScore,
+      })),
+      cases: store.cases.map((c) => ({
+        id: c.id,
+        title: c.title,
+        priority: c.priority,
+        status: c.status,
+        linkedIps: c.linkedIps,
+        linkedEventIds: c.linkedEventIds,
+        evidenceCount: c.evidence.length,
+        notesCount: c.notes.length,
+        isDemoData: c.isDemoData,
+      })),
+    };
 
-const contextPayload = {
-  forensicRules: [
-    'NEVER invent facts, IPs, hashes, or log entries not present in the supplied telemetry.',
-    'Clearly separate verified evidence, correlation-based inference, and DEMO DATA.',
-    'NEVER present IP geolocation as proof of a person physical location or identity; always cite accuracy radius km and anonymization caveats.',
-    'If evidence is insufficient, explicitly list missing logs/artifacts under evidenceGaps.',
-  ],
-  activeFilters,
-  selectedEvent: selectedEventId ? store.events.find((e) => e.id === selectedEventId) ?? null : null,
-  selectedCase: selectedCaseId ? store.cases.find((c) => c.id === selectedCaseId) ?? null : null,
-  selectedIpIntel: selectedIp ? store.ipIntel[selectedIp] ?? null : null,
-  recentEvents: store.events.slice(0, 18).map((e) => ({
-    id: e.id,
-    eventType: e.eventType,
-    severity: e.severity,
-    riskScore: e.riskScore,
-    sourceIp: e.sourceIp,
-    approxLocation: `${e.sourceLocation.city}, ${e.sourceLocation.country} (±${e.sourceLocation.accuracyRadiusKm} km)`,
-    asn: e.asn,
-    isp: e.isp,
-    connectionType: e.connectionType,
-    vpnProbability: e.vpnProbability,
-    targetAsset: e.targetAssetName,
-    maskedDestinationIp: e.maskedDestinationIp,
-    timestamp: e.timestamp,
-    status: e.status,
-    caseId: e.caseId,
-    isDemoData: e.isDemoData,
-    metadata: e.metadata,
-  })),
-  assets: store.assets.map((a) => ({
-    id: a.id,
-    name: a.name,
-    location: a.locationLabel,
-    type: a.assetType,
-    criticality: a.criticality,
-    riskScore: a.riskScore,
-  })),
-  cases: store.cases.map((c) => ({
-    id: c.id,
-    title: c.title,
-    priority: c.priority,
-    status: c.status,
-    linkedIps: c.linkedIps,
-    linkedEventIds: c.linkedEventIds,
-    evidenceCount: c.evidence.length,
-    notesCount: c.notes.length,
-    isDemoData: c.isDemoData,
-  })),
-};
+    const systemInstruction =
+      'You are a Principal Digital Forensics & Incident Response (DFIR) Analyst inside CyberTrace Globe. Analyze ONLY the supplied telemetry context. Never fabricate IPs, timestamps, usernames, or conclusions. Explicitly distinguish verified telemetry, correlation-based inference, and simulated DEMO DATA. Always remind analysts that IP geolocation is an approximate network lead with an uncertainty radius and never proves an individual physical location.';
 
-tpY, items: {,
-  properties: {
-    type: { type: Type.STRING },
-    value: { type: Type.STRING },
-    context: { type: Type.STRING },
-    recommendedActions: {
-      type: Type.ARRAY,
-        items: { type: Type.STRING },
-      description: 'Concrete prioritized containment and forensic response actions.',
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        summary: { type: Type.STRING, description: 'Concise executive incident summary grounded strictly in supplied data.' },
+        likelyAttackChain: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Ordered kill-chain steps inferred from correlated events.',
         },
-    const msg = ertatic(distDir));
-    log(`CyberTrace Globe full-stack server running on http://0.0.0.0:${PORT}`);
+        indicatorsOfCompromise: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: { type: Type.STRING },
+              value: { type: Type.STRING },
+              context: { type: Type.STRING },
+              isDemoData: { type: Type.BOOLEAN },
+            },
+          },
+        },
+        riskAssessment: { type: Type.STRING, description: 'Overall risk posture and impact assessment.' },
+        evidenceGaps: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Specific missing logs, PCAPs, EDR captures, or auth records needed.',
+        },
+        recommendedActions: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Concrete prioritized containment and forensic response actions.',
+        },
+        confidenceLevel: { type: Type.STRING, description: 'low, medium, or high' },
+        verifiedEvidence: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Facts directly verified from log/telemetry fields.',
+        },
+        correlationInferences: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Analytic inferences derived by correlating multiple events.',
+        },
+        demoDataNotice: {
+          type: Type.STRING,
+          description: 'Explicit notice if simulated DEMO DATA was included in the analyzed records.',
+        },
+        sourcesUsed: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Event IDs, case IDs, and asset IDs referenced.',
+        },
+      },
+      required: [
+        'summary',
+        'likelyAttackChain',
+        'indicatorsOfCompromise',
+        'riskAssessment',
+        'evidenceGaps',
+        'recommendedActions',
+        'confidenceLevel',
+        'verifiedEvidence',
+        'correlationInferences',
+        'demoDataNotice',
+        'sourcesUsed',
+      ],
+    };
+
+    try {
+      const contents = `Investigator Question: ${question}\n\nForensic Telemetry Context (JSON):\n${JSON.stringify(contextPayload)}`;
+      const result = await callGeminiWithFallback(apiKey, contents, systemInstruction, responseSchema);
+      const parsed = JSON.parse(result.text.trim());
+      const normalizedConfidence =
+        parsed.confidenceLevel === 'high' || parsed.confidenceLevel === 'low' ? parsed.confidenceLevel : 'medium';
+
+      return res.json({
+        ...parsed,
+        confidenceLevel: normalizedConfidence,
+        generatedAt: new Date().toISOString(),
+        modelUsed: result.model,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Gemini analysis request failed';
+      console.error('Gemini Forensic Analyst error:', msg);
+      return res.status(502).json({
+        error: `Forensic AI analysis failed: ${msg}`,
+      });
+    }
+  });
+
+  // ==================== GITHUB ORGANIZATION & CODESEC INTELLIGENCE ====================
+  // 1. Connection status
+  app.get('/api/github/connection/status', (_req, res) => {
+    res.json(githubStore.status);
+  });
+
+  // 2. Connect GitHub organization
+  app.post('/api/github/connect', (req, res) => {
+    const role = requireWriteRole(req, res);
+    if (!role) return;
+
+    const { organizationName, installationId, selectedRepositories } = req.body || {};
+    githubStore.status = {
+      connected: true,
+      orgName: organizationName || 'ApexCyber-Global-Org',
+      organizationName: organizationName || 'ApexCyber-Global-Org',
+      installationId: installationId || 'inst-prod-94021',
+      connectedAt: new Date().toISOString(),
+      installedAt: new Date().toISOString(),
+      lastScanAt: new Date().toISOString(),
+      lastSyncAt: new Date().toISOString(),
+      selectedRepoCount: (selectedRepositories || githubStore.repositories).length,
+      totalRepoCount: githubStore.repositories.length,
+      selectedRepositories: selectedRepositories || githubStore.repositories.map((r) => r.fullName),
+      permissions: {
+        contents: 'read',
+        pull_requests: 'read',
+        workflows: 'read',
+        security_events: 'read',
+        dependabot: 'read',
+        secret_scanning: 'read',
+        administration: 'read',
+      },
+      retentionPolicyDays: 90,
+      dataProcessingPurpose: 'Defensive code supply-chain audit and developer anomaly telemetry.',
+      tokenStorageMode: 'encrypted_at_rest_aes_256_gcm',
+      accountType: 'organization',
+      isDemoData: Boolean(req.body.isDemoData ?? true),
+      dataRetentionPolicy: 'Ephemeral telemetry index. Never stores raw source code, secrets, or passwords.',
+    };
+
+    recordAudit('security-admin', role, 'GITHUB_ORGANIZATION_CONNECTED', 'github_org', githubStore.status.orgName || 'org', `Connected GitHub organization: ${githubStore.status.orgName}`);
+
+    res.json({ success: true, status: githubStore.status });
+  });
+
+  // 3. List GitHub installations
+  app.get('/api/github/installations', (_req, res) => {
+    res.json({
+      installations: [
+        {
+          id: githubStore.status.installationId || 'inst-prod-94021',
+          org: githubStore.status.orgName || 'ApexCyber-Global-Org',
+          connected: githubStore.status.connected,
+          accountType: githubStore.status.accountType,
+          repositoriesCount: githubStore.repositories.length,
+          lastSyncAt: githubStore.status.lastScanAt,
+          isDemoData: githubStore.status.isDemoData,
+        },
+      ],
+    });
+  });
+
+  // 4. Repositories
+  app.get('/api/github/repositories', (_req, res) => {
+    res.json({ repositories: githubStore.repositories });
+  });
+
+  // 5. Trigger security scan
+  app.post('/api/github/scan', (req, res) => {
+    const role = requireWriteRole(req, res);
+    if (!role) return;
+
+    const scanId = `scan-gh-${Date.now()}`;
+    githubStore.repositories = githubStore.repositories.map((repo) => {
+      const repoSecrets = githubStore.secrets.filter((s) => s.repositoryName === repo.name && s.status === 'open').length;
+      const critVulns = githubStore.vulnerabilities.filter((v) => v.repositoryName === repo.name && v.severity === 'critical').length;
+      const highVulns = githubStore.vulnerabilities.filter((v) => v.repositoryName === repo.name && v.severity === 'high').length;
+      const medVulns = githubStore.vulnerabilities.filter((v) => v.repositoryName === repo.name && v.severity === 'medium').length;
+      const unpinned = githubStore.workflows.filter((w) => w.repositoryName === repo.name && w.unpinnedActions.length > 0).length;
+      const anomalies = githubStore.developerActivities.filter((a) => a.repositoryName === repo.name && a.anomalyScore >= 60).length;
+
+      const scored = calculateRepositoryRiskScore({
+        visibility: repo.visibility,
+        criticalVulns: critVulns,
+        highVulns: highVulns,
+        mediumVulns: medVulns,
+        exposedSecrets: repoSecrets,
+        unpinnedActions: unpinned,
+        branchProtectionDisabled: !repo.branchProtection?.enabled,
+        allowForcePushes: Boolean(repo.branchProtection?.allowForcePushes),
+        unusualActivityCount: anomalies,
+      });
+
+      return {
+        ...repo,
+        riskScore: scored.riskScore,
+        riskLevel: scored.riskLevel,
+        exposedSecretCount: repoSecrets,
+        vulnerabilityCount: {
+          critical: critVulns,
+          high: highVulns,
+          medium: medVulns,
+          low: repo.vulnerabilityCount?.low || 0,
+        },
+        blastRadiusScore: calculateBlastRadius(repo.name, repo.linkedAssetId ? 'critical' : null, repoSecrets, critVulns),
+      };
+    });
+
+    const critIssues = githubStore.repositories.reduce((acc, r) => acc + (r.vulnerabilityCount?.critical || 0), 0);
+    const exposedSecretsTotal = githubStore.repositories.reduce((acc, r) => acc + r.exposedSecretCount, 0);
+    const totalVulns = githubStore.vulnerabilities.length;
+    const totalDevAnomalies = githubStore.developerActivities.filter((a) => a.anomalyScore >= 60).length;
+    const overallRisk = Math.round(
+      githubStore.repositories.reduce((acc, r) => acc + r.riskScore, 0) / (githubStore.repositories.length || 1)
+    );
+
+    githubStore.lastScanReport = {
+      scanId,
+      startedAt: new Date(Date.now() - 45000).toISOString(),
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      scannedRepositories: githubStore.repositories.length,
+      criticalIssuesFound: critIssues,
+      secretsExposed: exposedSecretsTotal,
+      vulnerabilitiesFound: totalVulns,
+      developerAnomalies: totalDevAnomalies,
+      overallOrgRiskScore: overallRisk,
+      isDemoData: true,
+    };
+
+    recordAudit('security-analyst', role, 'GITHUB_CODE_SECURITY_SCAN_TRIGGERED', 'github_scan', scanId, `Executed CodeSec & Supply Chain scan across ${githubStore.repositories.length} repositories. Scan ID: ${scanId}`);
+
+    res.json({
+      success: true,
+      scanReport: githubStore.lastScanReport,
+    });
+  });
+
+  // 6. Get scan status / report
+  app.get('/api/github/scan/:scan_id', (_req, res) => {
+    res.json(githubStore.lastScanReport);
+  });
+
+  // 7. Secret exposure alerts (guaranteed MASKED, never plaintext)
+  app.get('/api/github/secrets', (_req, res) => {
+    const sanitizedSecrets = githubStore.secrets.map((s) => ({
+      ...s,
+      maskedFingerprint: s.maskedFingerprint?.includes('••••') ? s.maskedFingerprint : '••••••••••••••••',
+    }));
+    res.json({ secrets: sanitizedSecrets });
+  });
+
+  // 8. Vulnerabilities (Dependabot + Code Scanning)
+  app.get('/api/github/vulnerabilities', (_req, res) => {
+    res.json({ vulnerabilities: githubStore.vulnerabilities });
+  });
+
+  // 9. Supply-chain dependencies
+  app.get('/api/github/dependencies', (_req, res) => {
+    const dependencies = [
+      { name: 'jsonwebtoken', currentVersion: '8.5.1', patchedVersion: '9.0.0', vulnerability: 'CVE-2022-23529', severity: 'critical', repository: 'payments-engine', ecosystem: 'npm', directDependency: true, isDemoData: true },
+      { name: 'axios', currentVersion: '0.21.1', patchedVersion: '0.21.4', vulnerability: 'CVE-2021-3749', severity: 'high', repository: 'frontend-portal', ecosystem: 'npm', directDependency: true, isDemoData: true },
+      { name: 'boto3', currentVersion: '1.24.0', patchedVersion: '1.28.0', vulnerability: null, severity: 'none', repository: 'auth-service', ecosystem: 'pypi', directDependency: true, isDemoData: true },
+      { name: 'express', currentVersion: '4.18.2', patchedVersion: null, vulnerability: null, severity: 'none', repository: 'payments-engine', ecosystem: 'npm', directDependency: true, isDemoData: true },
+    ];
+    res.json({ dependencies });
+  });
+
+  // 10. Workflows & CI/CD Actions
+  app.get('/api/github/workflows', (_req, res) => {
+    res.json({ workflows: githubStore.workflows });
+  });
+
+  // 11. Organization audit logs
+  app.get('/api/github/audit-events', (_req, res) => {
+    res.json({ auditEvents: githubStore.auditEvents });
+  });
+
+  // 12. Developer activity analysis & anomalies
+  app.get('/api/github/developer-activity', (_req, res) => {
+    res.json({ activities: githubStore.developerActivities });
+  });
+
+  // 13. Link repository to physical/cloud target asset
+  app.post('/api/github/repositories/:id/link-asset', (req, res) => {
+    const role = requireWriteRole(req, res);
+    if (!role) return;
+
+    const repoId = req.params.id;
+    const { assetId } = req.body || {};
+    const repoIndex = githubStore.repositories.findIndex((r) => r.id === repoId || r.name === repoId);
+    if (repoIndex === -1) {
+      return res.status(404).json({ error: `Repository ${repoId} not found` });
+    }
+
+    const targetAsset = store.assets.find((a) => a.id === assetId);
+    if (!targetAsset && assetId) {
+      return res.status(404).json({ error: `Target asset ${assetId} not found in inventory` });
+    }
+
+    githubStore.repositories[repoIndex].linkedAssetId = assetId || undefined;
+    githubStore.repositories[repoIndex].linkedAssetName = targetAsset ? targetAsset.name : undefined;
+    githubStore.repositories[repoIndex].blastRadiusScore = calculateBlastRadius(
+      githubStore.repositories[repoIndex].name,
+      targetAsset?.criticality ?? null,
+      githubStore.repositories[repoIndex].exposedSecretCount,
+      githubStore.repositories[repoIndex].vulnerabilityCount?.critical || 0
+    );
+
+    recordAudit('security-analyst', role, 'GITHUB_REPO_ASSET_LINKED', 'github_repo', repoId, `Linked repo ${githubStore.repositories[repoIndex].name} to target asset ${targetAsset ? targetAsset.name : 'none'}`);
+
+    res.json({
+      success: true,
+      repository: githubStore.repositories[repoIndex],
+    });
+  });
+
+  // 14. Disconnect GitHub organization
+  app.post('/api/github/disconnect', (req, res) => {
+    const role = requireWriteRole(req, res);
+    if (!role) return;
+
+    const deleteData = Boolean(req.body.deleteData);
+    githubStore.status = {
+      connected: false,
+      selectedRepoCount: 0,
+      totalRepoCount: 0,
+      permissions: {
+        contents: 'read',
+        pull_requests: 'read',
+        workflows: 'read',
+        security_events: 'read',
+        secret_scanning: 'read',
+        dependabot: 'read',
+        administration: 'read',
+      },
+      retentionPolicyDays: 0,
+      dataProcessingPurpose: 'Revoked',
+      tokenStorageMode: 'encrypted_at_rest_aes_256_gcm',
+      isDemoData: true,
+      dataRetentionPolicy: 'Data removed following tenant revocation request.',
+    };
+
+    if (deleteData) {
+      githubStore.repositories = [];
+      githubStore.secrets = [];
+      githubStore.vulnerabilities = [];
+      githubStore.workflows = [];
+      githubStore.developerActivities = [];
+      githubStore.auditEvents = [];
+    }
+
+    recordAudit('security-admin', role, 'GITHUB_ORGANIZATION_DISCONNECTED', 'github_org', 'ApexCyber-Global-Org', `Revoked GitHub connection. Data deleted: ${deleteData}`);
+
+    res.json({ success: true, message: 'GitHub connection revoked successfully', status: githubStore.status });
+  });
+
+  // ==================== STATIC / VITE SERVING ====================
+  if (!IS_PROD) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distDir = path.resolve(__dirname, 'dist');
+    app.use(express.static(distDir));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`CyberTrace Globe full-stack server running on http://0.0.0.0:${PORT}`);
   });
 }
-ri
+
+startServer().catch((err) => {
+  console.error('Failed to start CyberTrace Globe server:', err);
+  process.exit(1);
+});
